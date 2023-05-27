@@ -94,7 +94,7 @@ In part 3, we'll bring together both of the previous two parts by training our R
 import os; os.environ["ACCELERATE_DISABLE_RICH"] = "1"
 import sys
 import torch as t
-from torch import Tensor as T
+from torch import Tensor
 from torch import nn
 import torch.nn.functional as F
 from collections import OrderedDict
@@ -162,6 +162,8 @@ def section_1():
         <li><a class='contents-el' href='#aside-dataclasses'>Aside - <code>dataclasses</code></a></li>
         <li><a class='contents-el' href='#exercise-add-a-validation-loop'><b>Exercise</b> - add a validation loop</a></li>
         <li><a class='contents-el' href='#a-note-on-modular-code'>A note on modular code</a></li>
+    </ul></li>
+    <li class='margtop'><a class='contents-el' href='#bonus-using-transforms-for-data-augmentation'>Bonus - Using Transforms for Data Augmentation</a></li>
 </ul></li>""", unsafe_allow_html=True)
 
     st.markdown(r"""
@@ -275,12 +277,13 @@ class ConvNet(nn.Module):
         self.flatten = Flatten()
         self.fc1 = Linear(in_features=7*7*64, out_features=128)
         self.fc2 = Linear(in_features=128, out_features=10)
+        self.relu3 = ReLU()
         
     def forward(self, x: t.Tensor) -> t.Tensor:
         # SOLUTION
         x = self.maxpool1(self.relu1(self.conv1(x)))
         x = self.maxpool2(self.relu2(self.conv2(x)))
-        x = self.fc2(self.fc1(self.flatten(x)))
+        x = self.fc2(self.relu3(self.fc1(self.flatten(x))))
         return x
 ```
 </details>
@@ -857,7 +860,7 @@ class LitConvNetTest(pl.LightningModule):
         self.convnet = ConvNet()
         self.args = args
 
-    def _shared_train_val_step(self, batch: Tuple[t.Tensor, t.Tensor]) -> Tuple[t.Tensor, t.Tensor, t.Tensor]:
+    def _shared_train_val_step(self, batch: Tuple[t.Tensor, t.Tensor]) -> Tuple[t.Tensor, t.Tensor]:
         '''Convenience function since train/validation steps are similar.'''
         pass
 
@@ -926,7 +929,7 @@ class LitConvNetTest(pl.LightningModule):
         self.convnet = ConvNet()
         self.args = args
 
-    def _shared_train_val_step(self, batch: Tuple[t.Tensor, t.Tensor]) -> Tuple[t.Tensor, t.Tensor, t.Tensor]:
+    def _shared_train_val_step(self, batch: Tuple[t.Tensor, t.Tensor]) -> Tuple[t.Tensor, t.Tensor]:
         '''Convenience function since train/validation steps are similar.'''
         # SOLUTION
         imgs, labels = batch
@@ -980,6 +983,61 @@ Making code modular involves breaking down complex systems into smaller, self-co
 * Promoting reusability, as modules can be reused across different parts of the same project (or even different projects).
 
 For instance, when you get to writing training loops for our transformer models next week, you'll be returning to the code we wrote today! You'll find it much easier to repurpose this code for training a language model than you would if it was written in a single, monolithic function using just vanilla PyTorch.
+
+
+## Bonus - Using Transforms for Data Augmentation
+
+Data augmentation is a technique used to increase the amount of training data by applying various transformations to the original dataset. This can help improve the performance of the model, especially when you have limited training data. Data augmentation can also improve the robustness of the model by exposing it to different variations of the input data, making the model generalize better to unseen data.
+
+Some commonly used data augmentation techniques include:
+
+1. Rotation - rotating the image by a certain angle.
+2. Scaling - resizing the image.
+3. Flipping - reflecting the image horizontally or vertically.
+4. Translation - shifting the image horizontally or vertically.
+5. Cropping - taking a random crop from the image.
+
+Here's an example of some of these transformations, using `torchvision.transforms`:
+
+
+```python
+
+if MAIN:
+    data_augmentation_transform = transforms.Compose([
+       transforms.RandomRotation(degrees=15),
+       transforms.RandomResizedCrop(size=28, scale=(0.8, 1.2)),
+       transforms.RandomHorizontalFlip(p=0.5),
+       transforms.RandomVerticalFlip(p=0.5),
+       transforms.RandomAffine(degrees=0, translate=(0.1, 0.1)),
+       transforms.ToTensor(),
+       transforms.Normalize((0.1307,), (0.3081,))
+    ])
+
+```
+
+Now we can update the `get_mnist` function to incorporate data augmentation for the training dataset:
+
+
+```python
+def get_mnist_augmented(subset: int = 1, train_transform=None, test_transform=None):
+
+if MAIN:
+       if train_transform is None:
+           train_transform = MNIST_TRANSFORM
+       if test_transform is None:
+           test_transform = MNIST_TRANSFORM
+       mnist_trainset = datasets.MNIST(root="./data", train=True, download=True, transform=train_transform)
+       mnist_testset = datasets.MNIST(root="./data", train=False, download=True, transform=test_transform)
+       if subset > 1:
+           mnist_trainset = Subset(mnist_trainset, indices=range(0, len(mnist_trainset), subset))
+           mnist_testset = Subset(mnist_testset, indices=range(0, len(mnist_testset), subset))
+       return mnist_trainset, mnist_testset
+
+```
+
+By applying data augmentation, we can improve the model's performance with limited data and enhance its ability to generalize to new data. Note that data augmentation is typically applied only to the training dataset, as it helps the model learn more generalized features from the artificially augmented data. The test dataset should remain unchanged to provide an unbiased evaluation of the model performance.
+
+**Challenge - how good test accuracy can you get using data augmentation, for a fixed size of training set (e.g. 100, 1000, ...?).**
 
 
 
@@ -1148,9 +1206,9 @@ Now, we'll implement our `BatchNorm2d`, the layer described in the documents you
 
 Something which might have occurred to you as you read about batch norm - how does it work when in inference mode? It makes sense to normalize over a batch of multiple input data, but normalizing over a single datapoint doesn't make any sense! This is why we have to introduce a new PyTorch concept: **buffers**.
 
-Unlike `nn.Parameter`, a buffer is not its own type and does not wrap a `Tensor`. A buffer is just a regular `Tensor` on which you've called [self.register_buffer](https://pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module.register_buffer) from inside a `nn.Module`.
+Unlike `nn.Parameter`, a buffer is not its own type and does not wrap a `Tensor`. A buffer is just a regular `Tensor` on which you've called [self.register_buffer](https://pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module.register_buffer) from inside a `nn.Module`. As an example, `self.register_buffer("variable_name", t.zeros(10))` will define an object `self.variable_name` and register it as a buffer.
 
-The reason we have a different name for this is to describe how it is treated by various machinery within PyTorch.
+What is a buffer, and why is it different to a standard attribute or to a `nn.Parameter` object? The differences are as follows:
 
 * It is normally included in the output of `module.state_dict()`, meaning that `torch.save` and `torch.load` will serialize and deserialize it.
 * It is moved between devices when you call `model.to(device)`.
@@ -1189,9 +1247,10 @@ Implement `BatchNorm2d` according to the [PyTorch docs](https://pytorch.org/docs
 
 ```python
 class BatchNorm2d(nn.Module):
-    running_mean: Float[t.Tensor, "num_features"]
-    running_var: Float[t.Tensor, "num_features"]
-    num_batches_tracked: Int[t.Tensor, ""]
+    # The type hints below aren't functional, they're just for documentation
+    running_mean: Float[Tensor, "num_features"]
+    running_var: Float[Tensor, "num_features"]
+    num_batches_tracked: Int[Tensor, ""] # This is how we denote a scalar tensor
 
     def __init__(self, num_features: int, eps=1e-05, momentum=0.1):
         '''
@@ -1225,56 +1284,16 @@ if MAIN:
 
 ```
 
-## AveragePool
-
-Let's end our collection of `nn.Module`s with an easy one 🙂
-
-The ResNet has a Linear layer with 1000 outputs at the end in order to produce classification logits for each of the 1000 classes. Any Linear needs to have a constant number of input features, but the ResNet is supposed to be compatible with arbitrary height and width, so we can't just do a pooling operation with a fixed kernel size and stride.
-
-Luckily, the simplest possible solution works decently: take the mean over the spatial dimensions. Intuitively, each position has an equal "vote" for what objects it can "see".
-
-
-### Exercise - implement `AveragePool`
-
-```c
-Difficulty: 🟠⚪⚪⚪⚪
-Importance: 🟠🟠⚪⚪⚪
-
-You should spend up to 5-10 minutes on this exercise.
-```
-
-This should be a pretty straightforward implementation; it doesn't have any weights or parameters of any kind, so you only need to implement the `forward` method.
-
-
-```python
-class AveragePool(nn.Module):
-    def forward(self, x: t.Tensor) -> t.Tensor:
-        '''
-        x: shape (batch, channels, height, width)
-        Return: shape (batch, channels)
-        '''
-        pass
-
-
-```
-
 <details>
 <summary>Solution</summary>
 
-```python
-class AveragePool(nn.Module):
-    def forward(self, x: t.Tensor) -> t.Tensor:
-        '''
-        x: shape (batch, channels, height, width)
-        Return: shape (batch, channels)
-        '''
-        return t.mean(x, dim=(2, 3))
-```
+
 ```python
 class BatchNorm2d(nn.Module):
-    running_mean: Float[t.Tensor, "num_features"]
-    running_var: Float[t.Tensor, "num_features"]
-    num_batches_tracked: Int[t.Tensor, ""]
+    # The type hints below aren't functional, they're just for documentation
+    running_mean: Float[Tensor, "num_features"]
+    running_var: Float[Tensor, "num_features"]
+    num_batches_tracked: Int[Tensor, ""] # This is how we denote a scalar tensor
 
     def __init__(self, num_features: int, eps=1e-05, momentum=0.1):
         '''
@@ -1329,7 +1348,56 @@ class BatchNorm2d(nn.Module):
     def extra_repr(self) -> str:
         # SOLUTION
         return ", ".join([f"{key}={getattr(self, key)}" for key in ["num_features", "eps", "momentum"]])
+```
+</details>
 
+
+## AveragePool
+
+Let's end our collection of `nn.Module`s with an easy one 🙂
+
+The ResNet has a Linear layer with 1000 outputs at the end in order to produce classification logits for each of the 1000 classes. Any Linear needs to have a constant number of input features, but the ResNet is supposed to be compatible with arbitrary height and width, so we can't just do a pooling operation with a fixed kernel size and stride.
+
+Luckily, the simplest possible solution works decently: take the mean over the spatial dimensions. Intuitively, each position has an equal "vote" for what objects it can "see".
+
+
+### Exercise - implement `AveragePool`
+
+```c
+Difficulty: 🟠⚪⚪⚪⚪
+Importance: 🟠🟠⚪⚪⚪
+
+You should spend up to 5-10 minutes on this exercise.
+```
+
+This should be a pretty straightforward implementation; it doesn't have any weights or parameters of any kind, so you only need to implement the `forward` method.
+
+
+```python
+class AveragePool(nn.Module):
+    def forward(self, x: t.Tensor) -> t.Tensor:
+        '''
+        x: shape (batch, channels, height, width)
+        Return: shape (batch, channels)
+        '''
+        pass
+
+
+```
+
+<details>
+<summary>Solution</summary>
+
+```python
+class AveragePool(nn.Module):
+    def forward(self, x: t.Tensor) -> t.Tensor:
+        '''
+        x: shape (batch, channels, height, width)
+        Return: shape (batch, channels)
+        '''
+        return t.mean(x, dim=(2, 3))
+```
+```python
 class AveragePool(nn.Module):
     def forward(self, x: t.Tensor) -> t.Tensor:
         '''
@@ -1367,7 +1435,7 @@ The right-most block in the diagram, `ResidualBlock`, is nested inside `BlockGro
 Similarly, `BlockGroup` is nested multiple times (four to be precise) in the full `ResNet34` architecture.
 </details>
 
-<img src="https://raw.githubusercontent.com/callummcdougall/computational-thread-art/master/example_images/misc/resnet_diagram.svg" width="900">
+<img src="https://raw.githubusercontent.com/callummcdougall/computational-thread-art/master/example_images/misc/resnet_diagram_fixed3.svg" width="900">
 
 
 
@@ -2172,7 +2240,7 @@ class LitResNet(pl.LightningModule):
         super().__init__()
         pass
 
-    def _shared_train_val_step(self, batch: Tuple[t.Tensor, t.Tensor]) -> Tuple[t.Tensor, t.Tensor, t.Tensor]:
+    def _shared_train_val_step(self, batch: Tuple[t.Tensor, t.Tensor]) -> Tuple[t.Tensor, t.Tensor]:
         '''
         Convenience function since train/validation steps are similar.
         '''
@@ -2227,7 +2295,7 @@ Tomorrow, we'll dig a bit deeper into training and optimizers, and we'll end by 
 
 
 func_page_list = [
-    (section_0, '🏠 Home'),     (section_1, '1️⃣ Building & Training a CNN'),     (section_2, '2️⃣ Assembling ResNet'),     (section_3, '3️⃣ ResNet feature extraction'), 
+    (section_0, "🏠 Home"),     (section_1, "1️⃣ Building & Training a CNN"),     (section_2, "2️⃣ Assembling ResNet"),     (section_3, "3️⃣ ResNet feature extraction"), 
 ]
 
 func_list = [func for func, page in func_page_list]

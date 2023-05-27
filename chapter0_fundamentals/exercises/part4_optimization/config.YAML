@@ -1,0 +1,11 @@
+program: scaling_laws.py
+method: grid
+metric:
+    name: test_accuracy
+    goal: maximize
+name: sweep
+parameters:
+    model_width: 
+        values: [2, 4, 8, 16]
+    sample: 
+        values: [.125, .25, .5, 1]
