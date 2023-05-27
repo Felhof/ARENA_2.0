@@ -59,7 +59,6 @@ segments = t.tensor([
 ])
 
 if MAIN:
-    print(rays1d)
     fig = render_lines_with_plotly(rays1d)
 # %%
 if MAIN:
@@ -79,8 +78,6 @@ def response(seed=(0, 10, 1), v=(-2.0, 2.0, 0.01)):
         fig.data[2].update({"x": [P(v)[0]], "y": [P(v)[1]]})
 
 # %%
-@jaxtyped
-@typeguard.typechecked
 def intersect_ray_1d(ray, segment) -> bool:
     '''
     ray: shape (n_points=2, n_dim=3)  # O, D points
@@ -113,125 +110,55 @@ def intersect_ray_1d(ray, segment) -> bool:
 if MAIN:
     tests.test_intersect_ray_1d(intersect_ray_1d)
     tests.test_intersect_ray_1d_special_case(intersect_ray_1d)
-  
-# %%
-from typing import Tuple
-
-rays = einops.repeat(rays1d, "nr a b -> nr ns a b", nr=len(rays1d), ns=len(segments), a=2, b=3)
-esegments = einops.repeat(segments, "ns a b -> nr ns a b", nr=len(rays1d), ns=len(segments), a=2, b=3)
-print(f"rays: {rays.shape}")
-print(f"segments: {esegments.shape}")
-
-dx: Float[Tensor, "nrays 1"] = rays[:,:,1,0]
-dy: Float[Tensor, "nrays 1"] = rays[:,:,1,1]
-
-print(f"D_x of every ray: {dx.shape}")
-print(f"D_y of every ray: {dy.shape}")
-
-print(f"L1 of every segment: {esegments[:,:,0].shape}")
-print(f"L2 of every segment: {esegments[:,:,1].shape}")
-
-print(f"segment directions: {(esegments[:,:,0] - esegments[:,:,1]).shape}")
-
-segments_directions: Float[Tensor, "nr ns  3"] = esegments[:,:,0] - esegments[:,:,1]
-
-segments_direction_x: Float[Tensor, "nr ns 1"] = segments_directions[:,:,0]
-segments_direction_y: Float[Tensor, "nr ns 1"] = segments_directions[:,:,1]
-print(f"x of segments directions {segments_direction_x.shape}")
-print(f"y of segments directions {segments_direction_y.shape}")
-
-print(f"lhs entry:  {t.stack((dx, segments_direction_x), dim=-1).shape}")
-
-lhs: Float[Tensor, "nr ns 2 2"] = t.stack((
-        t.stack((dx, segments_direction_x), dim=-1),
-        t.stack((dy, segments_direction_y), dim=-1)
-), dim=-1)
-
-print(f"lhs: {lhs.shape}")
-
-rhs: Float[Tensor, "nrays 2"] = t.stack((
-    (esegments[:,:,0] - rays[:,:,0])[:,:,0], 
-    (esegments[:,:,0] - rays[:,:,0])[:,:,1]
-    ), dim=-1)
-print(f"rhs: {rhs.shape}")
-
-singular: Float[Tensor, "nrays"] = t.linalg.det(lhs) < 1e-6
-
-print(f"singular: {singular.shape}")
-
-# replace non-invertible matrices with identity
-lhs[singular] = t.eye(2)
-
-# solve all the systems
-intersection_points = t.linalg.solve(lhs, rhs)
-
-print(f"intersection points: {intersection_points.shape}")
-
-# create boolean array with entries corresponding to if solution satisfies constraints 
-on_segment = (intersection_points[:,:,0] >= 0) & (0 <= intersection_points[:,:,1]) & (intersection_points[:,:,1] <= 1)
-print(f"on segment: {on_segment.shape}")
-
-# do an and with that array and the array for if a matrix is invertible
-valid_intersections = on_segment & singular
-
-print(t.any(valid_intersections, dim=1).shape)
 
 # %%
 def intersect_rays_1d(rays: Float[Tensor, "nrays 2 3"], segments: Float[Tensor, "nsegments 2 3"]) -> Bool[Tensor, "nrays"]:
     '''
     For each ray, return True if it intersects any segment.
     '''
-    rays: Float[Tensor, "nr ns 2 3"] = einops.repeat(rays, "nr a b -> nr ns a b", nr=len(rays1d), ns=len(segments), a=2, b=3)
-    segments: Float[Tensor, "nr ns 2 3"] = einops.repeat(segments, "ns a b -> nr ns a b", nr=len(rays1d), ns=len(segments), a=2, b=3)
+    n_rays = len(rays)
+    n_segments = len(segments)
+    
+    rays: Float[Tensor, "nr ns 2 2"] = einops.repeat(
+        rays, 
+        "nr a b -> nr ns a b", 
+        ns=n_segments
+    )[...,:2]
+    segments: Float[Tensor, "nr ns 2 2"] = einops.repeat(
+        segments, 
+        "ns a b -> nr ns a b", 
+        nr=n_rays
+    )[...,:2]
 
-    dx: Float[Tensor, "nrays 1"] = rays[:,:,1,0]
-    dy: Float[Tensor, "nrays 1"] = rays[:,:,1,1]
+    o: Float[Tensor, "nr ns 2"] = rays[:,:,0]
+    d: Float[Tensor, "nr ns 2"] = rays[:,:,1]
 
-    # print(f"D_x of every ray: {dx.shape}")
-    # print(f"D_y of every ray: {dy.shape}")
-
-    # print(f"L1 of every segment: {esegments[:,:,0].shape}")
-    # print(f"L2 of every segment: {esegments[:,:,1].shape}")
-
-    # print(f"segment directions: {(esegments[:,:,0] - esegments[:,:,1]).shape}")
-
-    segments_directions: Float[Tensor, "nr ns  3"] = segments[:,:,0] - segments[:,:,1]
-
-    segments_direction_x: Float[Tensor, "nr ns 1"] = segments_directions[:,:,0]
-    segments_direction_y: Float[Tensor, "nr ns 1"] = segments_directions[:,:,1]
-    # print(f"x of segments directions {segments_direction_x.shape}")
-    # print(f"y of segments directions {segments_direction_y.shape}")
-
-    # print(f"lhs entry:  {t.stack((dx, segments_direction_x), dim=-1).shape}")
+    l1: Float[Tensor, "nr ns 2"] = segments[:,:,0]
+    l2: Float[Tensor, "nr ns 2"] = segments[:,:,1]
 
     lhs: Float[Tensor, "nr ns 2 2"] = t.stack((
-            t.stack((dx, segments_direction_x), dim=-1),
-            t.stack((dy, segments_direction_y), dim=-1)
+            [d, l1 - l2]
     ), dim=-1)
 
-    # print(f"lhs: {lhs.shape}")
+    rhs: Float[Tensor, "nrays ns 2"] = l1 - o
 
-    rhs: Float[Tensor, "nrays 2"] = t.stack((
-        (segments[:,:,0] - rays[:,:,0])[:,:,0], 
-        (segments[:,:,0] - rays[:,:,0])[:,:,1]
-    ), dim=-1)
-    # print(f"rhs: {rhs.shape}")
-
-    singular: Float[Tensor, "nrays"] = t.linalg.det(lhs) < 1e-6
+    singular: Float[Tensor, "nrays"] = t.linalg.det(lhs).abs() < 1e-6
 
     # replace non-invertible matrices with identity
     lhs[singular] = t.eye(2)
 
     # solve all the systems
     intersection_points = t.linalg.solve(lhs, rhs)
+    u = intersection_points[...,0]
+    v = intersection_points[...,1]
 
     # create boolean array with entries corresponding to if solution satisfies constraints 
-    on_segment = (intersection_points[:,:,0] >= 0) & (0 <= intersection_points[:,:,1]) & (intersection_points[:,:,1] <= 1)
+    on_segment = (u >= 0) & (0 <= v) & (v <= 1)
 
     # do an and with that array and the array for if a matrix is invertible
     valid_intersections = on_segment & (~singular)
 
-    return t.any(valid_intersections, dim=1)
+    return t.any(valid_intersections, dim=-1)
 
 if MAIN:
     tests.test_intersect_rays_1d(intersect_rays_1d)
