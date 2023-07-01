@@ -240,7 +240,7 @@ W_normed = W / W.norm(dim=0, keepdim=True)
 imshow(W_normed.T @ W_normed, title="Cosine similarities of each pair of 2D feature embeddings", width=600)
 ```
 
-To put it another way - if the columns of $W$ were orthogonal, then $W^T W$ would be the identity (i.e. $W^{-1} = W^T$). This can't actually be the case because $W$ is a 2x5 matrix, but its columns can be "nearly orthgonal" in the sense of having pairwise cosine similarities close to -1.
+To put it another way - if the columns of $W$ were orthogonal, then $W^T W$ would be the identity (i.e. $W^{-1} = W^T$). This can't actually be the case because $W$ is a 2x5 matrix, but its columns can be "nearly orthgonal" in the sense of having pairwise cosine similarities close to 0.
 
 
 Another nice thing about using two bottleneck dimensions is that we get to visualise our output! We've got a few helper functions for this purpose.
@@ -634,6 +634,8 @@ Before implementing the function, you should read the [experimental details in A
     * i.e. if one feature occurs, the other must not occur
     * We can simulate this by having a random seed for "is a feature pair all zero", and a random seed for "which feature in the pair is active" (used if the feature pair isn't all zero)
 
+**Important note** - we're using a different convention to the Anthropic paper. They have both features in an anticorrelated pair set to zero with probability $1-p$, and with probability $p$ we choose one of the features in the pair to set to zero. The problem with this is that the "true feature probability" is $p/2$, not $p$. You should make sure that each feature actually occurs with probability $p$, which means setting the pair to zero with probability $1-2p$. You can assume $p$ will always be less than $1/2$.
+
 ```python
 def generate_correlated_batch(self: Model, n_batch: int) -> Float[Tensor, "n_batch instances fetures"]:
     '''
@@ -936,7 +938,7 @@ The core things to take away form this paper are:
 
 We've seen that superposition can allow a model to represent extra features, and that the number of extra features increases as we increase sparsity. In this section, we'll investigate this relationship in more detail, discovering an unexpected geometric story: features seem to organize themselves into geometric structures such as pentagons and tetrahedrons!
 
-The code below runs a third experiment, with all importances the same. We're first interested in the number of features the model has learned to represent. This is well represented with the squard **Frobenius norm** of the weight matrix $W$, i.e. $||W||_F^2 = \sum_{ij}W_{ij}^2$.
+The code below runs a third experiment, with all importances the same. We're first interested in the number of features the model has learned to represent. This is well represented with the squared **Frobenius norm** of the weight matrix $W$, i.e. $||W||_F^2 = \sum_{ij}W_{ij}^2$.
 
 <details>
 <summary>Question - can you see why this is a good metric for the number of features represented?</summary>
@@ -993,7 +995,7 @@ It turns out that antipodal pairs are just the tip of the iceberg. Hiding undern
 How can we discover these geometric configurations? Consider the following metric, which the authors named the **dimensionality** of a feature:
 
 $$
-D_i = \frac{\big\|W_i\big\|^2}{\sum_{j\neq i} \big( \hat{W_i} \cdot W_j \big)^2}
+D_i = \frac{\big\|W_i\big\|^2}{\sum_{j} \big( \hat{W_i} \cdot W_j \big)^2}
 $$
 
 Intuitively, this is a measure of what "fraction of a dimension" a specific feature gets. Let's try and get a few intuitions for this metric:
@@ -1006,7 +1008,7 @@ Intuitively, this is a measure of what "fraction of a dimension" a specific feat
 * If there are $k$ features which are all parallel to each other, and orthogonal to all others, then they "share" the dimensionality equally, i.e. $D_i = 1/k$ for each of them.
 * The sum of all $D_i$ can't be greater than the total number of features $m$, with equality if and only if all the vectors are orthogonal.
 
-The code below pltos th
+The code below plots the fractions of dimensions, as a function of sparsity.
 
 
 ```python
